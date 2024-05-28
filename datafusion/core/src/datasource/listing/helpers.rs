@@ -30,7 +30,7 @@ use arrow_array::Array;
 use arrow_schema::Fields;
 use futures::stream::FuturesUnordered;
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use log::{debug, trace};
+use log::{debug, info, trace, warn};
 
 use crate::{error::Result, scalar::ScalarValue};
 
@@ -367,18 +367,24 @@ pub async fn pruned_partition_list<'a>(
             _ => {}
         }
     }
-    let partitions = list_partitions(
-        store,
-        partitioned_table_path.as_ref().unwrap_or(table_path),
-        list_partiton_depth,
-    )
-    .await?;
-    debug!("Listed {} partitions", partitions.len());
+    if partitioned_table_path.is_none() {
+        warn!(
+            "table ({}) query without partition prefix: {:?}",
+            table_path, filters
+        );
+    }
+    let list_path = partitioned_table_path.as_ref().unwrap_or(table_path);
+    let partitions = list_partitions(store, list_path, list_partiton_depth).await?;
+    info!(
+        "Listed {} partitions for path: {}",
+        partitions.len(),
+        &list_path
+    );
 
     let pruned =
         prune_partitions(table_path, partitions, filters, partition_cols).await?;
 
-    debug!("Pruning yielded {} partitions", pruned.len());
+    info!("Pruning yielded {} partitions", pruned.len());
 
     let stream = futures::stream::iter(pruned)
         .map(move |partition: Partition| async move {
